@@ -1,0 +1,118 @@
+
+import requests
+import os
+import base64
+import argparse
+from json import JSONDecoder
+from lxml.etree import Element, SubElement, tostring
+from xml.dom.minidom import parseString
+import cv2
+import numpy as np
+#文件夹遍历指定类型
+Const_Image_Format = [".jpg"]
+import sys
+type = sys.getfilesystemencoding()
+class FileFilt:
+    fileList = []
+    counter = 0
+    def __init__(self):
+        pass
+    def FindFile(self,dirr,filtrate = 1):
+        global Const_Image_Format
+        for s in os.listdir(dirr):
+            newDir = os.path.join(dirr,s)
+            if os.path.isfile(newDir):
+                if filtrate:
+                        if newDir and(os.path.splitext(newDir)[1] in Const_Image_Format):
+                            self.fileList.append(newDir)
+                            self.counter+=1
+                else:
+                    self.fileList.append(newDir)
+                    self.counter+=1
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input', default="/data1/liuyizhuang/face+api")
+    return parser.parse_args()
+
+def cv_imread(file_path):
+    im = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), -1)
+    return im
+
+if __name__ == '__main__':
+    args = get_args()
+    url = 'https://api-cn.faceplusplus.com/imagepp/v1/licenseplate'
+    data={}
+    api_key = "2DIrbVtZJLjsZyjhG7I3W3xObnSV9l4j"
+    api_secret = "2-lBpzCX_XnTXMwrUU8XgFkVq5p-LYxI"
+
+    data["api_key"]=api_key
+    data["api_secret"] =api_secret
+
+    p1 = args.input
+
+    b = FileFilt()
+    b.FindFile(dirr = p1)
+
+    for image in b.fileList:
+        image_base64 = base64.b64encode(open(image, 'rb').read())
+        data["image_base64"] = image_base64
+
+        response = requests.post(url, data=data)
+        req_con = response.content.decode('utf-8')
+        req_dict = JSONDecoder().decode(req_con)
+
+        results = req_dict["results"]
+        image_id = str(image).split("/")[-1]
+
+        #print(image)
+        img = cv_imread(image)
+        sp = img.shape
+        sz1 = sp[0]  # height(rows) of image
+        sz2 = sp[1]  # width(colums) of image
+        sz3 = sp[2]  # the pixels value is made up of three primary colors
+
+        if results:
+
+            #results=req_dict["results"]
+            left_top=results[0]["bound"]["left_top"]
+            right_bottom = results[0]["bound"]["right_bottom"]
+
+            # print(image_id)
+            # print(left_top)
+            # print(right_bottom)
+
+            node_root = Element('annotation')
+            node_folder = SubElement(node_root, 'folder')
+            node_folder.text = 'images'
+            node_filename = SubElement(node_root, 'filename')
+            node_filename.text = image_id
+            node_size = SubElement(node_root, 'size')
+            node_width = SubElement(node_size, 'width')
+            node_width.text = str(sz2)
+            node_height = SubElement(node_size, 'height')
+            node_height.text = str(sz1)
+            node_depth = SubElement(node_size, 'depth')
+            node_depth.text = str(sz3)
+            node_object = SubElement(node_root, 'object')
+            node_name = SubElement(node_object, 'name')
+            node_name.text = 'car'
+            node_difficult = SubElement(node_object, 'difficult')
+            node_difficult.text = '0'
+            node_bndbox = SubElement(node_object, 'bndbox')
+            node_xmin = SubElement(node_bndbox, 'xmin')
+            node_xmin.text = str(left_top["x"])
+            node_ymin = SubElement(node_bndbox, 'ymin')
+            node_ymin.text = str(left_top["y"])
+            node_xmax = SubElement(node_bndbox, 'xmax')
+            node_xmax.text = str(right_bottom["x"])
+            node_ymax = SubElement(node_bndbox, 'ymax')
+            node_ymax.text = str(right_bottom["y"])
+            xml = tostring(node_root, pretty_print=True)  # 格式化显示，该换行的换行
+            dom = parseString(xml)
+            newxml =os.path.join(p1,'license',image)
+            with open(newxml,'wb') as resfile:
+                resfile.write(xml)
+                print(xml)
+        else:
+            os.remove(os.path.exists(p1,image))
